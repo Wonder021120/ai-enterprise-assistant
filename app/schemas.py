@@ -20,7 +20,15 @@ class JDAnalysisResponse(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
 
+
 class JDLLMResult(BaseModel):
+    company: str | None
     job_title: str | None
+    location: str | None
+    recruitment_type: str | None
+    education: str | None
+    graduation_requirement: str | None
+    experience_requirement: str | None
+    salary: str | None
     required_skills: list[str]
     preferred_skills: list[str]

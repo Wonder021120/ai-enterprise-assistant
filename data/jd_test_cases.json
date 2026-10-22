@@ -1,0 +1,52 @@
+
+[
+  {
+    "id": "jd_001",
+    "input": "招聘AI产品经理，要求熟悉Python、RAG和Agent，熟悉SQL者优先。",
+    "expected": {
+      "company": null,
+      "job_title": "AI产品经理",
+      "location": null,
+      "recruitment_type": null,
+      "education": null,
+      "graduation_requirement": null,
+      "experience_requirement": null,
+      "salary": null,
+      "required_skills": ["Python", "RAG", "Agent"],
+      "preferred_skills": ["SQL"]
+    }
+  },
+  {
+    "id": "jd_002",
+    "input": "某互联网公司招聘数据分析师，本科及以上学历，工作地点上海。要求熟练使用SQL和Excel，了解Python者优先。月薪15k-25k。",
+    "expected": {
+      "company": null,
+      "job_title": "数据分析师",
+      "location": "上海",
+      "recruitment_type": null,
+      "education": "本科及以上学历",
+      "graduation_requirement": null,
+      "experience_requirement": null,
+      "salary": "月薪15k-25k",
+      "required_skills": ["SQL", "Excel"],
+      "preferred_skills": ["Python"]
+    }
+  },
+  {
+    "id": "jd_003",
+    "input": "招聘Python后端开发工程师，要求掌握Python编程语言，熟悉FastAPI或Django框架，能够使用MySQL数据库。具有Docker部署经验者优先。",
+    "expected": {
+      "company": null,
+      "job_title": "Python后端开发工程师",
+      "location": null,
+      "recruitment_type": null,
+      "education": null,
+      "graduation_requirement": null,
+      "experience_requirement": null,
+      "salary": null,
+      "required_skills": ["Python", "FastAPI", "Django", "MySQL"],
+      "preferred_skills": ["Docker"]
+    },
+    "notes": "当前结构不能表达FastAPI或Django的二选一关系，暂时记录为已知限制。"
+  }
+]
