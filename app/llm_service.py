@@ -17,15 +17,15 @@ class LLMOutputError(Exception):
 
 
 def create_llm_client() -> OpenAI:
-    """创建连接 OpenRouter 的 LLM 客户端。"""
+    """创建连接 DeepSeek 的 LLM 客户端。"""
 
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = os.getenv("DEEPSEEK_API_KEY")
 
     if not api_key:
-        raise ValueError("未找到 OPENROUTER_API_KEY，请检查 .env 文件")
+        raise ValueError("未找到 DEEPSEEK_API_KEY，请检查 .env 文件")
 
     client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
+        base_url="https://api.deepseek.com",
         api_key=api_key,
         timeout=60.0,
         max_retries=2,
@@ -34,15 +34,18 @@ def create_llm_client() -> OpenAI:
     return client
 
 
+def get_llm_model_name() -> str:
+    """返回三个 LLM 阶段统一使用的 DeepSeek 模型名称。"""
+
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
+
+
 def analyze_jd_with_llm(job_description: str) -> JDLLMResult:
     """调用大模型分析招聘 JD，并验证结构化结果。"""
 
     client = create_llm_client()
 
-    model_name = os.getenv(
-        "OPENROUTER_MODEL",
-        "liquid/lfm-2.5-2.6b:free",
-    )
+    model_name = get_llm_model_name()
 
     response = client.chat.completions.create(
         model=model_name,
@@ -85,6 +88,14 @@ def analyze_jd_with_llm(job_description: str) -> JDLLMResult:
                     "如果原文没有提供信息，返回null。"
                     "对于技能列表，如果没有明确相关信息，返回空数组。"
                     "不得根据常识猜测原文没有提供的信息。"
+                    "只返回合法JSON对象，不要输出Markdown或其他说明文字。"
+                    "JSON示例："
+                    '{"company":null,"job_title":"Python工程师",'
+                    '"location":null,"recruitment_type":null,'
+                    '"education":null,"graduation_requirement":null,'
+                    '"experience_requirement":null,"salary":null,'
+                    '"required_skills":["Python"],'
+                    '"preferred_skills":["Docker"]}'
                 ),
             },
             {
@@ -92,18 +103,9 @@ def analyze_jd_with_llm(job_description: str) -> JDLLMResult:
                 "content": job_description,
             },
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "jd_analysis",
-                "strict": True,
-                "schema": JDLLMResult.model_json_schema(),
-            },
-        },
+        response_format={"type": "json_object"},
         extra_body={
-            "provider": {
-                "require_parameters": True,
-            },
+            "thinking": {"type": "disabled"},
         },
         max_tokens=1500,
     )
@@ -112,6 +114,13 @@ def analyze_jd_with_llm(job_description: str) -> JDLLMResult:
         raise LLMOutputError("模型没有返回候选结果")
 
     choice = response.choices[0]
+
+    if choice.finish_reason == "length":
+        raise LLMOutputError("模型输出因长度限制被截断")
+
+    if choice.finish_reason != "stop":
+        raise LLMOutputError("模型响应未正常结束")
+
     message = choice.message
 
     if message.refusal:

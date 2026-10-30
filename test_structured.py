@@ -1,10 +1,7 @@
 
-import os
 import json
 
-from dotenv import load_dotenv
-from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 # 1. 定义模型应该返回的数据结构
@@ -15,20 +12,11 @@ class JDResult(BaseModel):
 
 
 def main() -> None:
-    # 2. 读取 API 配置
-    load_dotenv()
+    from app.llm_service import create_llm_client, get_llm_model_name
 
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.environ["OPENROUTER_API_KEY"],
-        timeout=60.0,
-        max_retries=0,
-    )
-
-    model_name = os.getenv(
-        "OPENROUTER_MODEL",
-        "liquid/lfm-2.5-2.6b:free"
-    )
+    # 2. 读取统一的 DeepSeek API 配置
+    client = create_llm_client()
+    model_name = get_llm_model_name()
 
     # 3. 调用大模型，并要求结构化输出
     response = client.chat.completions.create(
@@ -39,6 +27,11 @@ def main() -> None:
                 "content": (
                     "你是招聘JD信息提取助手。"
                     "只提取原文明确要求的技能，不要编造。"
+                    "只返回合法JSON对象，不要输出Markdown或其他说明。"
+                    "JSON示例："
+                    '{"job_title":"AI产品经理",'
+                    '"required_skills":["Python"],'
+                    '"preferred_skills":["RAG","Agent"]}'
                 )
             },
             {
@@ -48,19 +41,8 @@ def main() -> None:
                 )
             }
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "jd_analysis",
-                "strict": True,
-                "schema": JDResult.model_json_schema()
-            }
-        },
-        extra_body={
-            "provider": {
-                "require_parameters": True
-            }
-        },
+        response_format={"type": "json_object"},
+        extra_body={"thinking": {"type": "disabled"}},
         max_tokens=1500,
     )
 
