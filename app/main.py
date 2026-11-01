@@ -1,15 +1,26 @@
 
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from openai import (
     APIConnectionError,
     APITimeoutError,
     APIStatusError,
     RateLimitError,
 )
+from sqlalchemy.exc import (
+    DisconnectionError,
+    IntegrityError,
+    OperationalError,
+    SQLAlchemyError,
+    TimeoutError as SQLAlchemyTimeoutError,
+)
+from sqlalchemy.orm import Session
 
+from app.db.session import get_db
 from app.schemas import (
+    AnalysisWorkflowRequest,
+    AnalysisWorkflowResponse,
     JDAnalysisRequest,
     JDAnalysisResponse,
     LearningPlanResponse,
@@ -23,6 +34,11 @@ from app.services.learning_plan_service import (
     generate_learning_plan,
 )
 from app.services.resume_matching_service import match_resume_to_jd
+from app.services.analysis_workflow_service import (
+    AnalysisWorkflowCandidateError,
+    AnalysisWorkflowConsistencyError,
+    AnalysisWorkflowService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -203,3 +219,133 @@ def analyze_learning_plan(
             status_code=502,
             detail="The LLM provider returned an error.",
         ) from exc
+
+
+def _workflow_failure_stage(error: Exception) -> str:
+    prefix = "analysis_workflow_stage="
+    for note in getattr(error, "__notes__", ()):
+        if note.startswith(prefix):
+            return note.removeprefix(prefix)
+    return "unknown"
+
+
+def _log_workflow_failure(error: Exception) -> None:
+    logger.error(
+        "api=analyze_workflow stage=%s exception=%s",
+        _workflow_failure_stage(error),
+        type(error).__name__,
+    )
+
+
+@app.post(
+    "/analyze/workflow",
+    response_model=AnalysisWorkflowResponse,
+)
+def analyze_workflow(
+    request: AnalysisWorkflowRequest,
+    database_session: Session = Depends(get_db),
+) -> AnalysisWorkflowResponse:
+    try:
+        result = AnalysisWorkflowService(database_session).run(
+            job_description=request.job_description,
+            resume_text=request.resume_text,
+            candidate_id=request.candidate_id,
+            candidate_display_name=request.candidate_display_name,
+            candidate_email=request.candidate_email,
+            resume_title=request.resume_title,
+        )
+
+    except AnalysisWorkflowCandidateError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=422,
+            detail="The candidate information cannot be processed.",
+        ) from exc
+
+    except AnalysisWorkflowConsistencyError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=502,
+            detail="The workflow analysis results are inconsistent.",
+        ) from exc
+
+    except LLMOutputError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=502,
+            detail="The LLM returned invalid or empty output.",
+        ) from exc
+
+    except RateLimitError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The LLM provider is temporarily rate-limited. "
+                "Please try again later."
+            ),
+        ) from exc
+
+    except (APIConnectionError, APITimeoutError) as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The LLM service is temporarily unavailable. "
+                "Please try again later."
+            ),
+        ) from exc
+
+    except APIStatusError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=502,
+            detail="The LLM provider returned an error.",
+        ) from exc
+
+    except IntegrityError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=409,
+            detail="The workflow conflicts with existing stored data.",
+        ) from exc
+
+    except (
+        OperationalError,
+        DisconnectionError,
+        SQLAlchemyTimeoutError,
+    ) as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=503,
+            detail="The database service is temporarily unavailable.",
+        ) from exc
+
+    except SQLAlchemyError as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=500,
+            detail="The workflow results could not be persisted.",
+        ) from exc
+
+    except Exception as exc:
+        _log_workflow_failure(exc)
+        raise HTTPException(
+            status_code=500,
+            detail="The workflow could not be completed.",
+        ) from exc
+
+    return AnalysisWorkflowResponse(
+        candidate_id=result.candidate_id,
+        resume_id=result.resume_id,
+        job_id=result.job_id,
+        analysis_run_id=result.analysis_run_id,
+        learning_plan_id=result.learning_plan_id,
+        required_job_skill_ids=list(result.required_job_skill_ids),
+        preferred_job_skill_ids=list(result.preferred_job_skill_ids),
+        analysis_skill_match_ids=list(result.analysis_skill_match_ids),
+        learning_plan_item_ids=list(result.learning_plan_item_ids),
+        jd_analysis=result.jd_analysis,
+        resume_matching=result.resume_matching,
+        learning_plan=result.learning_plan,
+    )

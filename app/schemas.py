@@ -1,4 +1,5 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -215,3 +216,65 @@ class LearningPlanResponse(BaseModel):
             priority_orders.add(item.priority_order)
 
         return self
+
+
+class AnalysisWorkflowRequest(ResumeMatchingRequest):
+    candidate_id: UUID | None = None
+    candidate_email: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=320,
+    )
+    candidate_display_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+    )
+    resume_title: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+    )
+
+    @field_validator("candidate_email")
+    @classmethod
+    def validate_candidate_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        local_part, separator, domain = normalized.partition("@")
+        if (
+            not local_part
+            or separator != "@"
+            or not domain
+            or "@" in domain
+            or any(character.isspace() for character in normalized)
+            or "." not in domain
+            or domain.startswith(".")
+            or domain.endswith(".")
+        ):
+            raise ValueError("candidate_email must be a valid email address")
+        return normalized
+
+    @field_validator("candidate_display_name", "resume_title")
+    @classmethod
+    def reject_blank_optional_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("text must contain non-whitespace characters")
+        return value
+
+
+class AnalysisWorkflowResponse(BaseModel):
+    candidate_id: UUID
+    resume_id: UUID
+    job_id: UUID
+    analysis_run_id: UUID
+    learning_plan_id: UUID
+    required_job_skill_ids: list[UUID]
+    preferred_job_skill_ids: list[UUID]
+    analysis_skill_match_ids: list[UUID]
+    learning_plan_item_ids: list[UUID]
+    jd_analysis: JDLLMResult
+    resume_matching: ResumeMatchingResponse
+    learning_plan: LearningPlanResponse
