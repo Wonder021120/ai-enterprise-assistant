@@ -9,6 +9,7 @@ env/
 
 # Environment variables
 .env
+.env.docker
 
 # IDE settings
 .vscode/
